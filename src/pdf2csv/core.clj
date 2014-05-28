@@ -70,13 +70,32 @@
   (map #(merge {:last-line-nb (:line-nb %1)} %1) spans)
   )
 
-(defn my-test []
-  (let [all-spans [{:line-nb 1 :x1 10 :x2 15} {:line-nb 1 :x1 20 :x2 30}
-                   {:line-nb 2 :x1 7  :x2 9}  {:line-nb 2 :x1 20 :x2 30}
-                   {:line-nb 3 :x1 12 :x2 14} {:line-nb 3 :x1 20 :x2 32}]
-        spans (init-spans all-spans)
-        current-spans (filter #(same-line {:last-line-nb 1} %1) spans)
-        rest-spans (filter #(not (same-line {:last-line-nb 1} %1) spans))
-        ]
-    (reduce #(merge-lines) current-spans rest-spans)
+(defn spans-to-lines [spans]
+  (->> spans
+       (group-by :line-nb)
+       (map second)))
+
+(def all-spans [{:line-nb 1 :x1 10 :x2 15} {:line-nb 1 :x1 20 :x2 30}
+                {:line-nb 2 :x1 7  :x2 9}  {:line-nb 2 :x1 15 :x2 25}
+                {:line-nb 3 :x1 12 :x2 14} {:line-nb 3 :x1 21 :x2 32}])
+
+
+(defn merge-white-spans-line [lines]
+  (let [first-line (first lines)
+        rest-lines (rest lines)]
+    (reduce merge-lines first-line rest-lines)))
+
+(defn merge-white-spans-lines [all-lines]
+  (loop [lines all-lines acc []]
+    (if (empty? lines)
+      acc
+      (recur (rest lines) (concat acc
+                                  (vector (merge-white-spans-line lines)))))
+    
     ))
+
+(defn my-test []
+  (let [spans (init-spans all-spans)
+        lines (spans-to-lines spans)
+        ]
+    (merge-white-spans-lines lines)))
