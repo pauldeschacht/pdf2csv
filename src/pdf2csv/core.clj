@@ -17,10 +17,10 @@
    :font-name (nth line 2)
    :font-size (Float/parseFloat (nth line 3))
    :space-width (Float/parseFloat (nth line 4))
-   :x1 (Float/parseFloat (nth line 5))
-   :x2 (Float/parseFloat (nth line 6))
-   :y1 (Float/parseFloat (nth line 7))
-   :y2 (Float/parseFloat (nth line 8))
+   :x1 (+ 1.0 (Float/parseFloat (nth line 5)))
+   :x2 (+ 1.0 (Float/parseFloat (nth line 6)))
+   :y1 (Float/parseFloat (nth line 8)) ;; TEST FILES HAVE COLUMNS REVERSED
+   :y2 (Float/parseFloat (nth line 7))
    :word (nth line 9)})
 
 (defn read-word-positions [filename]
@@ -61,16 +61,25 @@
   (let [width 100000 ;; should be the width of the page
         words1 (concat [{:x1 0
                          :x2 0
+                         :y1 (:y1 (first words))
+                         :y2 (:y2 (first words))
                          :line-nb (:line-nb (first words))
-                         :page-nb (:page-nb (first words))}] words)
+                         :page-nb (:page-nb (first words))
+                         }] words)
         words2 (concat words [{:x1 width
                                :x2 width
+                               :y1 (:y1 (first words))
+                               :y2 (:y2 (first words))
                                :line-nb (:line-nb (first words))
-                               :page-nb (:page-nb (first words))}])
+                               :page-nb (:page-nb (first words))
+                               }])
         ]
     (map (fn span [w1 w2]
            {:x1 (:x2 w1)
             :x2 (:x1 w2)
+            :y1 (:y1 w1)
+            :y2 (:y2 w1)
+            :height (- (:y2 w1) (:y1 w1))
             :line-nb (:line-nb w1)
             :last-line-nb (:line-nb w1)
             :page-nb (:page-nb w1)}
@@ -91,10 +100,17 @@
 ;;
 (defn overlap [span1 span2]
   "spans must overlap, otherwise the merged span will be garbage. the start line of the overlapping span is not changed, the last line is the line from the second span."
-  {:line-nb (:line-nb span1)
-   :last-line-nb (:line-nb span2)
-   :x1 (max (:x1 span1) (:x1 span2))
-   :x2 (min (:x2 span1) (:x2 span2))}
+  (let [y1 (min (:y1 span1) (:y1 span2))
+        y2 (max (:y2 span1) (:y2 span2))
+        ]
+    {:line-nb (:line-nb span1)
+     :last-line-nb (:line-nb span2)
+     :x1 (max (:x1 span1) (:x1 span2))
+     :x2 (min (:x2 span1) (:x2 span2))
+     :y1 y1 
+     :y2 y2
+     :height (- y2 y1)
+     })
   )
 
 (defn overlap? [span1 span2]
@@ -172,11 +188,6 @@
        (group-by :line-nb)
        (map second)))
 
-(def all-spans [{:line-nb 1 :x1 10 :x2 15} {:line-nb 1 :x1 20 :x2 30}
-                {:line-nb 2 :x1 7  :x2 13}  {:line-nb 2 :x1 15 :x2 25}
-                {:line-nb 3 :x1 12 :x2 14} {:line-nb 3 :x1 21 :x2 32}])
-
-
 (defn merge-white-spans-line [lines]
   (let [first-line (first lines)
         rest-lines (rest lines)]
@@ -208,15 +219,6 @@
        (filter #(not (empty? %)))
        ))
 ;;
-;;
-;;
-(defn height-line [line]
-  (map (fn [span]
-          (merge {:height (inc (- (:last-line-nb span) (:line-nb span)))} span )) line))
-
-(defn height-lines [lines]
-  (map height-line lines))
-;;
 ;; return a list of sequences. each sequence contains the stripes with
 ;; the same height.
 ;;
@@ -232,17 +234,21 @@
 ;; stripe to column (strips come from the same line)
 ;;
 (defn stripes-to-columns [line]
-  (map (fn [span1 span2]
-         {:x1 (:x2 span1)
-          :x2 (:x1 span2)
-          :y1 (:line-nb span1)
-          :y2 (min (:last-line-nb span1) (:last-line-nb span2))
-          :page-nb (:page-nb span1)
-          :height (min (:height span1) (:height span2))
-          })
-       line
-       (rest line)
-       ))
+  (let [sorted-line (sort-by :x1 line)]
+    (map (fn [span1 span2]
+           (let [y1 (min (:y1 span1) (:y1 span2))
+                 y2 (min (:y2 span1) (:y2 span2))
+                 ]
+             {:x1 (:x2 span1)
+              :x2 (:x1 span2)
+              :y1 y1
+              :y2 y2
+              :page-nb (:page-nb span1)
+              :height (- y2 y1)
+              }))
+         sorted-line
+         (rest sorted-line)
+         )))
 
 (defn stripes-to-columns-lines [lines]
   (map stripes-to-columns lines))
@@ -312,7 +318,6 @@
        (pages-to-spans)
        (map merge-white-spans-lines)
        (map #(remove-small-spans-from-lines 1.5 %1))
-       (map height-lines)
        (map #(remove-short-spans-from-lines 4 %1))
        (map stripes-to-columns-lines)
        (map #(word-count-lines words %1))
@@ -325,4 +330,15 @@
        (group-by-page-line-x)
        (process-words)
        ))
+
+
+(def in "test/pdf2csv/simple-wordpositions.csv")
+(def pos1 (word-positions-from-file in))
+(def pos2 (group-by-page-line-x pos1))
+(def spans (pages-to-spans pos2))
+(def stripes (map merge-white-spans-lines spans))
+(def stripes1 (map #(remove-small-spans-from-lines 1.5 %1) stripes))
+(def stripes2 (map #(remove-short-spans-from-lines 4 %1) stripes1))
+(def cols (map stripes-to-columns-lines stripes2))
+
 
