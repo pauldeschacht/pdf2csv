@@ -1,13 +1,8 @@
 (ns pdf2csv.core
   (:require [clojure.data.csv :as csv]
-           [clojure.java.io :as io])
-  )
-
-(def test-words [{:x1 10 :x2 15 :line-nb 1}
-                 {:x1 17 :x2 20 :line-nb 1}
-                 {:x1 23 :x2 27 :line-nb 1}
-                 {:x1 40 :x2 56 :line-nb 1}])
-
+            [clojure.java.io :as io]
+            [clojure.string]
+            ))
 ;;
 ;; read word positions from csv file
 ;;
@@ -29,15 +24,15 @@
      (csv/read-csv in-file :separator \;))))
 
 (defn word-positions-from-file [filename]
-  (doall (take 1000 (map parse-word-position (read-word-positions filename))))
+;;  (doall (take 1000 (map parse-word-position (read-word-positions filename))))
+  (doall (map parse-word-position (read-word-positions filename)))
   )
 ;;
 ;; sort the wordposition according page/line/x-position
 ;;
 (defn group-by-x [words]
   (->> words
-       (sort-by :x1))
-  )
+       (sort-by :x1)))
 
 (defn group-by-line-x [words]
   (->> words
@@ -55,10 +50,10 @@
        (map group-by-line-x)
        ))
 ;;
-;; convert the word positions to white spans
+;; convert the word positions to white spans (space between the words)
 ;;
 (defn line-to-spans [words]
-  (let [width 100000 ;; should be the width of the page
+  (let [width 100000 ;; TODO should be the width of the page
         words1 (concat [{:x1 0
                          :x2 0
                          :y1 (:y1 (first words))
@@ -87,7 +82,7 @@
          words1
          words2)))
 
-(defn page-to-spans [lines] ;;page == lines
+(defn page-to-spans [lines] 
   (map line-to-spans lines))
 
 (defn pages-to-spans [pages]
@@ -110,8 +105,8 @@
      :y1 y1 
      :y2 y2
      :height (- y2 y1)
-     })
-  )
+     :page-nb (:page-nb span1)
+     }))
 
 (defn overlap? [span1 span2]
   "check if 2 spans do overlap"
@@ -123,15 +118,13 @@
      (<= x21 x12) false ;; span1 before span2
      (<= x22 x11) false ;; span2 after span1
      :else true
-     )
-    ))
+     )))
 
 (defn merge-span-span [span1 span2]
   "if 2 spans overlap, return the overlapping part, the overlapping part grows vertically (covers at least the 2 lines."
   (if (overlap? span1 span2)
     (overlap span1 span2)
-    nil
-))
+    nil))
 ;;
 ;; span-line overlap (first span is on line N, other-spans are all the
 ;; spans of line N+1)
@@ -150,12 +143,10 @@
   (let [overlap-spans (overlap-span-line span other-spans)]
     (if (empty? overlap-spans)
       (vector span)
-      overlap-spans))
-  )
+      overlap-spans)))
 
 (defn same-line [line1 line2] 
-  (= (:last-line-nb line1) (:last-line-nb line2))
-)
+  (= (:last-line-nb line1) (:last-line-nb line2)))
 
 (defn spans-from-line [line-nb spans]
   (filter #(same-line {:last-line-nb line-nb} %1) spans))
@@ -175,11 +166,6 @@
                (flatten)
                (concat spans-prev-lines)
                ))))
-;;
-;; helper function to complete the data
-(defn init-spans [spans]
-  (map #(merge {:last-line-nb (:line-nb %1)} %1) spans)
-  )
 ;;
 ;; 
 ;;
@@ -202,25 +188,23 @@
     
     ))
 ;;
-;; remove spans that are too small
+;; remove small spans
 ;;
-(defn remove-small-spans-from-line [min-width strips]
-  (filter #(> (- (:x2 %1) (:x1 %1)) min-width) strips))
+(defn is-large-span? [min-height min-width span]
+  (let [height (- (:last-line-nb span) (:line-nb span))
+        width (- (:x2 span) (:x1 span))]
+    (and
+     (>= height min-height)
+     (>= width min-width))))
 
-(defn remove-small-spans-from-lines [min-width lines]
-  (map #(remove-small-spans-from-line min-width %1) lines))
+(defn remove-small-spans-from-line [min-height min-width line]
+  (filter #(is-large-span? min-height min-width %) line))
 
-(defn remove-short-spans-from-line [min-height strips]
-  (filter #(> (:height %1) min-height) strips))
-
-(defn remove-short-spans-from-lines [min-height lines]
-  (->> lines
-       (map #(remove-short-spans-from-line min-height %1))
-       (filter #(not (empty? %)))
-       ))
+(defn remove-small-spans-lines [min-height min-width lines]
+  (map #(remove-small-spans-from-line min-height min-width %) lines)
+  )
 ;;
-;; return a list of sequences. each sequence contains the stripes with
-;; the same height.
+;; group the span/stripe/column per height
 ;;
 (defn group-line-by-height [line]
   (->> line
@@ -231,7 +215,7 @@
 (defn group-lines-by-height [lines]
   (map group-line-by-height lines))
 ;;
-;; stripe to column (strips come from the same line)
+;; stripes to columns
 ;;
 (defn stripes-to-columns [line]
   (let [sorted-line (sort-by :x1 line)]
@@ -245,6 +229,9 @@
               :y2 y2
               :page-nb (:page-nb span1)
               :height (- y2 y1)
+              :line-nb (:line-nb span1)
+              :last-line-nb (min (:last-line-nb span1)
+                                 (:last-line-nb span2))
               }))
          sorted-line
          (rest sorted-line)
@@ -256,89 +243,148 @@
 ;; count words per column
 ;;
 (defn word-in-column? [column word]
-  ;; (if (and (= (:page-nb column) (:page-nb column))
-  ;;          (>= (:y1 column) (:line-nb word))
-  ;;          (<= (:y2 column) (:line-nb word))
-  ;;          (>= (:x1 column) (:x1 word))
-  ;;          (<= (:x2 column) (:x2 word)))
-  ;;   true
-  ;;   false)
-  (do
-    (println column)
-    (println word)
-    true)
+  (if (and (= (:page-nb column) (:page-nb word))
+           (<= (:y1 column) (:y1 word))
+           (>= (:y2 column) (:y2 word))
+           (<= (:x1 column) (:x1 word))
+           (>= (:x2 column) (:x2 word)))
+    true
+    false)
   )
 
+;;
+;; TODO: only count 1 if there are n words of the same line
+;;
 (defn word-count-for-column [words column]
-  (count
-   (filter true?
-           (map #(word-in-column?  column %) words))
-   )  )
-
+  (filter #(word-in-column? column %) words))
 ;;
 ;; column {:page-nb :x1 :x2 :y1 :y2}
 ;;
-;; add word-count to each colum {:page-nb :x1 :x2 :y1 :y2 :word-count}
-;;
-;; add word-count to each column of the line
+;; add words and word-count to each colum {:page-nb :x1 :x2 :y1 :y2 :word-count :words [...]}
 ;;
 (defn word-count-line [words line]
-  (let [page-words (flatten (filter #(= (:page-nb %1) (:page-nb line)) (flatten words)))
-        _ (println (str "Number of pge words " (count page-words)))
-        word-counts (map #(word-count-for-column page-words %) line)
+  (let [page-words (flatten (filter #(= (:page-nb %1) (:page-nb (first  line))) (flatten words)))
+        words-per-column (map #(word-count-for-column page-words %) line)
         ]
-    (map #(merge %1 {:word-count %2}) line word-counts))
-
-  )
+    (map #(merge %1 {:word-count (count %2) :words %2})
+         line words-per-column)))
 
 (defn word-count-lines [words lines]
   (map #(word-count-line words %1) lines))
-
+;;
+;; basic statistics based on number of words in the column
+;;
 (defn word-fillage [column]
-  (let [height (:height column)
-        word-count (:word-count column)
-        ]
+  (let [lines (inc (- (:last-line-nb column) (:line-nb column)))
+        word-count (:word-count column)]
     (if (> word-count 0)
-      (/ word-count height)
+      (/ word-count lines)
       0
-      )
-    )
-  
-  
-  )
+      )))
 
 (defn word-fillage-line [line]
   (map #(merge %1 {:word-fillage (word-fillage %1)}) line))
 
 (defn word-fillage-lines [lines]
   (map #(word-fillage-line %) lines))
+;;
+;; remove columns that are too small
+;;
+(defn remove-min-height-line [min-height-line columns]
+  (filter #(>= (inc (- (:last-line-nb %1) (:line-nb %1))) min-height-line) columns))
 
-(defn process-words [words]
-  (->> words
-       (pages-to-spans)
-       (map merge-white-spans-lines)
-       (map #(remove-small-spans-from-lines 1.5 %1))
-       (map #(remove-short-spans-from-lines 4 %1))
-       (map stripes-to-columns-lines)
-       (map #(word-count-lines words %1))
-       (map #(word-fillage-lines %1))
-;       (map group-lines-by-height)
+(defn remove-min-word-fillage [min-word-fillage columns]
+  (filter #(>= (:word-fillage %1) min-word-fillage) columns))
+
+(defn remove-small-cols-from-lines [min-height min-width min-word-fillage lines]
+  (->> lines
+       (map #(remove-min-height-line min-height %1))
+       (map #(remove-min-word-fillage min-word-fillage %1))
+       (filter #(>= (count %1) min-width))
        ))
-
-(defn process-file [filename]
-  (->> (word-positions-from-file filename)
-       (group-by-page-line-x)
-       (process-words)
+;;
+;; simple score: use size of the grid (lines * columns)
+;;
+(defn simple-score-line [line]
+  (let [width (count line)
+        min-height (if (> width 0)
+                     (apply min (map #(- (:last-line-nb %) (:line-nb %)) line))
+                     0
+                     )
+        ]
+    {:simple-score (* min-height width)
+     :columns line}
+    ))
+;;
+;; choose the biggest grid per page 
+;;
+(defn simple-score-lines [lines]
+  (->> lines
+       (map simple-score-line)
+       (sort-by :simple-score)
+       (last)
+       (:columns)))
+;;
+;; sort the word in each column according line number
+;;
+(defn sort-column-words-on-line [columns]
+  (->> columns
+       (map :words)
+       (map #(group-by :line-nb %))
        ))
+;;
+;; build a grid of words (line / columns)
+;;
+;; For each column, get the words that belong to a given line
+;;
+;; Each column contains the list of word positions. Extract the words
+;; that belong to a given line and concatenate the words
+;;
+(defn column-line-to-csv [column line-nb] ;;string
+  (let [words (get column line-nb)]
+    (->> words
+         (map :word)
+         (clojure.string/join " "))))
 
+(defn columns-line-to-csv [columns line-nb] ;; list of string
+  (map #(column-line-to-csv % line-nb) columns))
 
-(def in "test/pdf2csv/simple-wordpositions.csv")
+(defn columns-to-csv [columns]
+  (let [line-min (apply min (keys (first  columns)))
+        line-max (apply max (keys (first  columns)))]
+    (for [line-nb (range line-min (inc line-max))]
+      (columns-line-to-csv columns line-nb))))
+;;
+;; write pages to file
+;;
+(defn write-csv [out csv]
+  (with-open [out-file (io/writer out)]
+    (doall (map
+            #(csv/write-csv out-file % :separator \tab)
+            csv))))
+;;
+;; testing
+;;
+
+;;(def in "test/pdf2csv/simple-wordpositions.csv")
+(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
 (def pos1 (word-positions-from-file in))
 (def pos2 (group-by-page-line-x pos1))
 (def spans (pages-to-spans pos2))
-(def stripes (map merge-white-spans-lines spans))
-(def stripes1 (map #(remove-small-spans-from-lines 1.5 %1) stripes))
-(def stripes2 (map #(remove-short-spans-from-lines 4 %1) stripes1))
-(def cols (map stripes-to-columns-lines stripes2))
+(def spans* (map #(remove-small-spans-lines 0 6.0 %) spans)) ;; remove
+;; narrow spans
+(def stripes (map merge-white-spans-lines spans*))
+(def stripes* (map #(remove-small-spans-lines 5 6.0 %) stripes))
+(def cols (map stripes-to-columns-lines stripes*))
+(def cols-with-word-count (map #(word-count-lines pos2 %1) cols))
+;;(def cols-with-words (word-count-lines pos2  cols))
+(def cols-wc (map #(word-fillage-lines %1) cols-with-word-count))
 
-
+(def min-height 3) ;; at least 3 lines
+(def min-width 3)  ;; at least 3 columns per line
+(def min-word-fillage (/ 1 2)) ;; at least 50% filled
+(def result (map #(remove-small-cols-from-lines min-height min-width (/ 1 2) %1) cols-wc))
+(def scored-lines (map simple-score-lines result))
+(def grid (map sort-column-words-on-line scored-lines))
+(def csv (map columns-to-csv grid))
+(write-csv "test/test.csv" csv)
