@@ -14,8 +14,8 @@
    :space-width (Float/parseFloat (nth line 4))
    :x1 (+ 1.0 (Float/parseFloat (nth line 5)))
    :x2 (+ 1.0 (Float/parseFloat (nth line 6)))
-   :y1 (Float/parseFloat (nth line 8)) ;; TEST FILES HAVE COLUMNS REVERSED
-   :y2 (Float/parseFloat (nth line 7))
+   :y1 (Float/parseFloat (nth line 7)) 
+   :y2 (Float/parseFloat (nth line 8))
    :word (nth line 9)})
 
 (defn read-word-positions [filename]
@@ -367,14 +367,17 @@
 ;;
 
 ;;(def in "test/pdf2csv/simple-wordpositions.csv")
-(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
+;;(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
+;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
+(def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
 (def pos1 (word-positions-from-file in))
 (def pos2 (group-by-page-line-x pos1))
 (def spans (pages-to-spans pos2))
-(def spans* (map #(remove-small-spans-lines 0 6.0 %) spans)) ;; remove
+(def min-span-width 1.5)
+(def spans* (map #(remove-small-spans-lines 0 min-span-width %) spans)) ;; remove
 ;; narrow spans
 (def stripes (map merge-white-spans-lines spans*))
-(def stripes* (map #(remove-small-spans-lines 5 6.0 %) stripes))
+(def stripes* (map #(remove-small-spans-lines 5 min-span-width %) stripes))
 (def cols (map stripes-to-columns-lines stripes*))
 (def cols-with-word-count (map #(word-count-lines pos2 %1) cols))
 ;;(def cols-with-words (word-count-lines pos2  cols))
@@ -387,4 +390,4 @@
 (def scored-lines (map simple-score-lines result))
 (def grid (map sort-column-words-on-line scored-lines))
 (def csv (map columns-to-csv grid))
-(write-csv "test/test.csv" csv)
+(write-csv (str in ".csv") csv)
