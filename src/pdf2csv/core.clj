@@ -370,6 +370,7 @@
 ;;(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
 ;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
 (def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
+(def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
 (def pos1 (word-positions-from-file in))
 (def pos2 (group-by-page-line-x pos1))
 (def spans (pages-to-spans pos2))
@@ -386,7 +387,8 @@
 (def min-height 3) ;; at least 3 lines
 (def min-width 3)  ;; at least 3 columns per line
 (def min-word-fillage (/ 1 2)) ;; at least 50% filled
-(def result (map #(remove-small-cols-from-lines min-height min-width (/ 1 2) %1) cols-wc))
+(def min-word-fillage 0)
+(def result (map #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc))
 (def scored-lines (map simple-score-lines result))
 (def grid (map sort-column-words-on-line scored-lines))
 (def csv (map columns-to-csv grid))
