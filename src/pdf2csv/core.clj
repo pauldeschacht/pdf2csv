@@ -371,6 +371,8 @@
 ;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
 (def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
 (def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
+(def in "/home/pdeschacht/dev/img2csv/BRAM_FISHERAIRPORT_PassengersOCTOBER2013_1.info")
+(def in "/home/pdeschacht/dev/japan_airport_data.info")
 (def pos1 (word-positions-from-file in))
 (def pos2 (group-by-page-line-x pos1))
 (def spans (pages-to-spans pos2))
