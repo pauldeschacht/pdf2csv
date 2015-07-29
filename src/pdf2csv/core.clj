@@ -1,8 +1,11 @@
 (ns pdf2csv.core
+  (:use [clojure.tools.cli :refer [parse-opts]])
   (:require [clojure.data.csv :as csv]
             [clojure.java.io :as io]
             [clojure.string]
-            ))
+            )
+  (:gen-class)
+  )
 ;;
 ;; read word positions from csv file
 ;;
@@ -24,9 +27,7 @@
      (csv/read-csv in-file :separator \;))))
 
 (defn word-positions-from-file [filename]
-;;  (doall (take 1000 (map parse-word-position (read-word-positions filename))))
-  (doall (map parse-word-position (read-word-positions filename)))
-  )
+  (doall (map parse-word-position (read-word-positions filename))))
 ;;
 ;; sort the wordposition according page/line/x-position
 ;;
@@ -47,8 +48,7 @@
        (group-by :page-nb)
        (into (sorted-map-by <))
        (map second) ;; sequence of pages
-       (map group-by-line-x)
-       ))
+       (map group-by-line-x)))
 ;;
 ;; convert the word positions to white spans (space between the words)
 ;;
@@ -134,8 +134,7 @@
 (defn overlap-span-line [span other-spans]
   (->> other-spans
        (map #(merge-span-span span %1))
-       (filter #(not (nil? %1)))
-       ))
+       (filter #(not (nil? %1)))))
 ;;
 ;;
 ;;
@@ -363,35 +362,48 @@
             #(csv/write-csv out-file % :separator \tab)
             csv))))
 ;;
-;; testing
+;; extract coords and transform to strings
 ;;
+(defn coords [stripes]
+  (map (fn [s]
+         (->> [(:x1 s) (:y1 s) (:x2 s) (:y2 s)]
+              (map str)))
+       stripes))
+;;
+;; save the stringified coords to file
+;;
+(defn save-coords [out coords]
+  (with-open [out-file (io/writer out)]
+    (doall (csv/write-csv out-file coords :separator \,))))
+;;
+;; command line options
+;;
+(def cli-options
+  [["-i" "--input INPUT" "input file name"]])
 
-;;(def in "test/pdf2csv/simple-wordpositions.csv")
-;;(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
-;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
-(def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
-(def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
-(def in "/home/pdeschacht/dev/img2csv/BRAM_FISHERAIRPORT_PassengersOCTOBER2013_1.info")
-(def in "/home/pdeschacht/dev/japan_airport_data.info")
-(def pos1 (word-positions-from-file in))
-(def pos2 (group-by-page-line-x pos1))
-(def spans (pages-to-spans pos2))
-(def min-span-width 1.5)
-(def spans* (map #(remove-small-spans-lines 0 min-span-width %) spans)) ;; remove
-;; narrow spans
-(def stripes (map merge-white-spans-lines spans*))
-(def stripes* (map #(remove-small-spans-lines 5 min-span-width %) stripes))
-(def cols (map stripes-to-columns-lines stripes*))
-(def cols-with-word-count (map #(word-count-lines pos2 %1) cols))
-;;(def cols-with-words (word-count-lines pos2  cols))
-(def cols-wc (map #(word-fillage-lines %1) cols-with-word-count))
-
-(def min-height 3) ;; at least 3 lines
-(def min-width 3)  ;; at least 3 columns per line
-(def min-word-fillage (/ 1 2)) ;; at least 50% filled
-(def min-word-fillage 0)
-(def result (map #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc))
-(def scored-lines (map simple-score-lines result))
-(def grid (map sort-column-words-on-line scored-lines))
-(def csv (map columns-to-csv grid))
-(write-csv (str in ".csv") csv)
+(defn -main [& args]
+  (let [options (parse-opts args cli-options)
+        in (:input (:options options))
+        min-span-width 1.5
+        
+        pos1 (word-positions-from-file in)
+        pos2 (group-by-page-line-x pos1)
+        spans (pages-to-spans pos2)
+        min-span-width 1.5
+        spans* (map #(remove-small-spans-lines 0 min-span-width %) spans) ;; remove narrow spans
+        stripes (map merge-white-spans-lines spans*)
+        stripes* (map #(remove-small-spans-lines 5 min-span-width %) stripes)
+        cols (map stripes-to-columns-lines stripes*)
+        cols-with-word-count (map #(word-count-lines pos2 %1) cols)
+        ;;(def cols-with-words (word-count-lines pos2  cols)
+        cols-wc (map #(word-fillage-lines %1) cols-with-word-count)
+        
+        min-height 3  ;; at least 3 lines
+        min-width 3   ;; at least 3 columns per line
+        min-word-fillage (/ 1 2)  ;; at least 50% filled
+        min-word-fillage 0
+        result (map #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc)
+        scored-lines (map simple-score-lines result)
+        grid (map sort-column-words-on-line scored-lines)
+        csv (map columns-to-csv grid)]
+    (write-csv (str in ".csv") csv)))
