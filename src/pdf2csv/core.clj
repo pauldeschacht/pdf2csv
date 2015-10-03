@@ -25,7 +25,7 @@
 
 (defn word-positions-from-file [filename]
 ;;  (doall (take 1000 (map parse-word-position (read-word-positions filename))))
-  (doall (map parse-word-position (read-word-positions filename)))
+  (doall (mapv parse-word-position (read-word-positions filename)))
   )
 ;;
 ;; sort the wordposition according page/line/x-position
@@ -38,16 +38,16 @@
   (->> words
        (group-by :line-nb)
        (into (sorted-map-by <))
-       (map second)
-       (map group-by-x)
+       (mapv second)
+       (mapv group-by-x)
        )) ;;sequence of lines
 
 (defn group-by-page-line-x [words]
   (->> words
        (group-by :page-nb)
        (into (sorted-map-by <))
-       (map second) ;; sequence of pages
-       (map group-by-line-x)
+       (mapv second) ;; sequence of pages
+       (mapv group-by-line-x)
        ))
 ;;
 ;; convert the word positions to white spans (space between the words)
@@ -69,7 +69,7 @@
                                :page-nb (:page-nb (first words))
                                }])
         ]
-    (map (fn span [w1 w2]
+    (mapv (fn span [w1 w2]
            {:x1 (:x2 w1)
             :x2 (:x1 w2)
             :y1 (:y1 w1)
@@ -83,10 +83,10 @@
          words2)))
 
 (defn page-to-spans [lines] 
-  (map line-to-spans lines))
+  (mapv line-to-spans lines))
 
 (defn pages-to-spans [pages]
-  (map page-to-spans pages))
+  (mapv page-to-spans pages))
 ;;
 ;; span-span overlap (first span is on line N, second span is on line N+1)
 ;;
@@ -133,8 +133,8 @@
 ;;
 (defn overlap-span-line [span other-spans]
   (->> other-spans
-       (map #(merge-span-span span %1))
-       (filter #(not (nil? %1)))
+       (mapv #(merge-span-span span %1))
+       (filterv #(not (nil? %1)))
        ))
 ;;
 ;;
@@ -149,30 +149,31 @@
   (= (:last-line-nb line1) (:last-line-nb line2)))
 
 (defn spans-from-line [line-nb spans]
-  (filter #(same-line {:last-line-nb line-nb} %1) spans))
+  (filterv #(same-line {:last-line-nb line-nb} %1) spans))
 
 (defn spans-not-from-line [line-nb spans]
-  (filter #(not (same-line {:last-line-nb line-nb} %1)) spans))
+  (filterv #(not (same-line {:last-line-nb line-nb} %1)) spans))
 
 (defn merge-lines [acc-spans line]
   (if (empty? line)
-  	acc-spans
-  	(let [next-line-nb (:last-line-nb (first line))
-              curr-line-nb (dec next-line-nb)
-              spans-prev-lines (spans-not-from-line curr-line-nb acc-spans)
-              spans-last-line (spans-from-line curr-line-nb acc-spans)]
-          (->> spans-last-line
-               (map #(merge-span-line %1 line))
-               (flatten)
-               (concat spans-prev-lines)
-               ))))
+    acc-spans
+    (let [next-line-nb (:last-line-nb (first line))
+          curr-line-nb (dec next-line-nb)
+          spans-prev-lines (spans-not-from-line curr-line-nb acc-spans)
+          spans-last-line (spans-from-line curr-line-nb acc-spans)]
+      (->> spans-last-line
+           (mapv #(merge-span-line %1 line))
+           (flatten)
+           (concat spans-prev-lines)
+           (into [])
+           ))))
 ;;
 ;; 
 ;;
 (defn spans-to-lines [spans]
   (->> spans
        (group-by :line-nb)
-       (map second)))
+       (mapv second)))
 
 (defn merge-white-spans-line [lines]
   (let [first-line (first lines)
@@ -183,8 +184,8 @@
   (loop [lines all-lines acc []]
     (if (empty? lines)
       acc
-      (recur (rest lines) (concat acc
-                                  (vector (merge-white-spans-line lines)))))
+      (recur (rest lines) (into [] (concat acc
+                                          (vector (merge-white-spans-line lines))))))
     
     ))
 ;;
@@ -198,10 +199,10 @@
      (>= width min-width))))
 
 (defn remove-small-spans-from-line [min-height min-width line]
-  (filter #(is-large-span? min-height min-width %) line))
+  (filterv #(is-large-span? min-height min-width %) line))
 
 (defn remove-small-spans-lines [min-height min-width lines]
-  (map #(remove-small-spans-from-line min-height min-width %) lines)
+  (mapv #(remove-small-spans-from-line min-height min-width %) lines)
   )
 ;;
 ;; group the span/stripe/column per height
@@ -365,31 +366,38 @@
 ;;
 ;; testing
 ;;
-
+(defn group-spans-by-x1 [lines]
+  (mapv #(sort-by :x1 %) lines)
+  )
 ;;(def in "test/pdf2csv/simple-wordpositions.csv")
 ;;(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
 ;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
-(def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
-(def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
+;;(def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
+;;(def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
+;;(def in "/Users/pauldeschacht/dev/csv-conf/1113MYTDYE.info")
+(def in "resources/0514MYTDYEiPaxFrt.info")
+(def in "resources/0514MYTDYEiPaxFrt.info")
+;;(def in "resources/page2.info")
+(def in "resources/goair15.info")
 (def pos1 (word-positions-from-file in))
 (def pos2 (group-by-page-line-x pos1))
 (def spans (pages-to-spans pos2))
-(def min-span-width 1.5)
-(def spans* (map #(remove-small-spans-lines 0 min-span-width %) spans)) ;; remove
-;; narrow spans
-(def stripes (map merge-white-spans-lines spans*))
-(def stripes* (map #(remove-small-spans-lines 5 min-span-width %) stripes))
-(def cols (map stripes-to-columns-lines stripes*))
-(def cols-with-word-count (map #(word-count-lines pos2 %1) cols))
+(def min-span-width 2.5) ;;TODO make this a bit SMALLER than the space width
+(def spans* (mapv #(remove-small-spans-lines 0 min-span-width %) spans)) ;; remove narrow spans
+(def stripes (mapv merge-white-spans-lines spans*))
+(def stripes* (mapv group-spans-by-x1 stripes))
+;;(def stripes* (mapv #(remove-small-spans-lines 0 min-span-width %) stripes**))
+(def cols (mapv stripes-to-columns-lines stripes*))
+(def cols-with-word-count (mapv #(word-count-lines pos2 %1) cols))
 ;;(def cols-with-words (word-count-lines pos2  cols))
-(def cols-wc (map #(word-fillage-lines %1) cols-with-word-count))
+(def cols-wc (mapv #(word-fillage-lines %1) cols-with-word-count))
 
 (def min-height 3) ;; at least 3 lines
 (def min-width 3)  ;; at least 3 columns per line
 (def min-word-fillage (/ 1 2)) ;; at least 50% filled
-(def min-word-fillage 0)
-(def result (map #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc))
+;;(def min-word-fillage 0)
+(def result (mapv #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc))
 (def scored-lines (map simple-score-lines result))
-(def grid (map sort-column-words-on-line scored-lines))
-(def csv (map columns-to-csv grid))
+(def grid (mapv sort-column-words-on-line scored-lines))
+(def csv (mapv columns-to-csv grid))
 (write-csv (str in ".csv") csv)
