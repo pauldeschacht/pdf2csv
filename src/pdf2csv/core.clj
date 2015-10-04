@@ -1,8 +1,11 @@
 (ns pdf2csv.core
+  (:use [clojure.tools.cli :refer [parse-opts]])
   (:require [clojure.data.csv :as csv]
             [clojure.java.io :as io]
             [clojure.string]
-            ))
+            )
+  (:gen-class)
+  )
 ;;
 ;; read word positions from csv file
 ;;
@@ -364,40 +367,85 @@
             #(csv/write-csv out-file % :separator \tab)
             csv))))
 ;;
-;; testing
+;; extract coords and transform to strings
 ;;
 (defn group-spans-by-x1 [lines]
   (mapv #(sort-by :x1 %) lines)
   )
-;;(def in "test/pdf2csv/simple-wordpositions.csv")
-;;(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
-;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
-;;(def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
-;;(def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
-;;(def in "/Users/pauldeschacht/dev/csv-conf/1113MYTDYE.info")
-(def in "resources/0514MYTDYEiPaxFrt.info")
-(def in "resources/0514MYTDYEiPaxFrt.info")
-;;(def in "resources/page2.info")
-(def in "resources/goair15.info")
-(def pos1 (word-positions-from-file in))
-(def pos2 (group-by-page-line-x pos1))
-(def spans (pages-to-spans pos2))
-(def min-span-width 2.5) ;;TODO make this a bit SMALLER than the space width
-(def spans* (mapv #(remove-small-spans-lines 0 min-span-width %) spans)) ;; remove narrow spans
-(def stripes (mapv merge-white-spans-lines spans*))
-(def stripes* (mapv group-spans-by-x1 stripes))
-;;(def stripes* (mapv #(remove-small-spans-lines 0 min-span-width %) stripes**))
-(def cols (mapv stripes-to-columns-lines stripes*))
-(def cols-with-word-count (mapv #(word-count-lines pos2 %1) cols))
-;;(def cols-with-words (word-count-lines pos2  cols))
-(def cols-wc (mapv #(word-fillage-lines %1) cols-with-word-count))
+;; ;;(def in "test/pdf2csv/simple-wordpositions.csv")
+;; ;;(def in "test/pdf2csv/jan.pdf-wordLinePositions.csv")
+;; ;;(def in "test/pdf2csv/CAAC2012.pdf-wordLinePositions.csv")
+;; ;;(def in "/home/pdeschacht/dev/pdf2txtpos/pdf2txtpos/target/ACI_2013_08_worldwide.info")
+;; ;;(def in "/home/pdeschacht/pdf/Seaport/01Jul14_daily_segment_report.info")
+;; ;;(def in "/Users/pauldeschacht/dev/csv-conf/1113MYTDYE.info")
+;; (def in "resources/0514MYTDYEiPaxFrt.info")
+;; (def in "resources/0514MYTDYEiPaxFrt.info")
+;; ;;(def in "resources/page2.info")
+;; (def in "resources/goair15.info")
+;; (def pos1 (word-positions-from-file in))
+;; (def pos2 (group-by-page-line-x pos1))
+;; (def spans (pages-to-spans pos2))
+;; (def min-span-width 2.5) ;;TODO make this a bit SMALLER than the space width
+;; (def spans* (mapv #(remove-small-spans-lines 0 min-span-width %) spans)) ;; remove narrow spans
+;; (def stripes (mapv merge-white-spans-lines spans*))
+;; (def stripes* (mapv group-spans-by-x1 stripes))
+;; ;;(def stripes* (mapv #(remove-small-spans-lines 0 min-span-width %) stripes**))
+;; (def cols (mapv stripes-to-columns-lines stripes*))
+;; (def cols-with-word-count (mapv #(word-count-lines pos2 %1) cols))
+;; ;;(def cols-with-words (word-count-lines pos2  cols))
+;; (def cols-wc (mapv #(word-fillage-lines %1) cols-with-word-count))
 
-(def min-height 3) ;; at least 3 lines
-(def min-width 3)  ;; at least 3 columns per line
-(def min-word-fillage (/ 1 2)) ;; at least 50% filled
-;;(def min-word-fillage 0)
-(def result (mapv #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc))
-(def scored-lines (map simple-score-lines result))
-(def grid (mapv sort-column-words-on-line scored-lines))
-(def csv (mapv columns-to-csv grid))
-(write-csv (str in ".csv") csv)
+;; (def min-height 3) ;; at least 3 lines
+;; (def min-width 3)  ;; at least 3 columns per line
+;; (def min-word-fillage (/ 1 2)) ;; at least 50% filled
+;; ;;(def min-word-fillage 0)
+;; (def result (mapv #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc))
+;; (def scored-lines (map simple-score-lines result))
+;; (def grid (mapv sort-column-words-on-line scored-lines))
+;; (def csv (mapv columns-to-csv grid))
+;; (write-csv (str in ".csv") csv)
+
+(defn coords [stripes]
+  (map (fn [s]
+         (->> [(:x1 s) (:y1 s) (:x2 s) (:y2 s)]
+              (map str)))
+       stripes))
+;;
+;; save the stringified coords to file
+;;
+(defn save-coords [out coords]
+  (with-open [out-file (io/writer out)]
+    (doall (csv/write-csv out-file coords :separator \,))))
+;;
+;; command line options
+;;
+(def cli-options
+  [["-i" "--input INPUT" "input file name"]])
+
+(defn -main [& args]
+  (let [options (parse-opts args cli-options)
+        in (:input (:options options))
+        min-span-width 1.5
+        
+        pos1 (word-positions-from-file in)
+        pos2 (group-by-page-line-x pos1)
+        spans (pages-to-spans pos2)
+        min-span-width 2.5 ;; TODO make this a bit smaller than the space width
+        spans* (mapv #(remove-small-spans-lines 0 min-span-width %) spans) ;; remove narrow spans
+        stripes (mapv merge-white-spans-lines spans*)
+        ;;stripes* (map #(remove-small-spans-lines 5 min-span-width %) stripes)
+        stripes* (mapv group-spans-by-x1 stripes)
+        cols (mapv stripes-to-columns-lines stripes*)
+        cols-with-word-count (mapv #(word-count-lines pos2 %1) cols)
+        ;;(def cols-with-words (word-count-lines pos2  cols)
+        cols-wc (mapv #(word-fillage-lines %1) cols-with-word-count)
+        
+        min-height 3  ;; at least 3 lines
+        min-width 3   ;; at least 3 columns per line
+        min-word-fillage (/ 1 2)  ;; at least 50% filled
+        min-word-fillage 0
+        result (mapv #(remove-small-cols-from-lines min-height min-width min-word-fillage %1) cols-wc)
+        scored-lines (mapv simple-score-lines result)
+        grid (mapv sort-column-words-on-line scored-lines)
+        csv (mapv columns-to-csv grid)]
+    (write-csv (str in ".csv") csv)))
